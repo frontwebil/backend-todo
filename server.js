@@ -1,9 +1,24 @@
 require("dotenv").config();
-
 const express = require("express");
 const mongoose = require("mongoose");
 const workoutRoutes = require("./routes/tasks");
 const userRoutes = require("./routes/user");
+
+// Кеш з'єднання для повторного використання між викликами
+let cachedDb = null;
+
+async function connectToDatabase() {
+  if (cachedDb) {
+    return cachedDb;
+  }
+  
+  const db = await mongoose.connect(process.env.MONGO_URI, {
+    serverSelectionTimeoutMS: 5000 // Зменшимо таймаут до 5 секунд
+  });
+  
+  cachedDb = db;
+  return db;
+}
 
 const app = express();
 
@@ -15,24 +30,27 @@ app.use((req, res, next) => {
   next();
 });
 
+// Проміжне ПЗ для підключення до БД перед обробкою маршрутів
+app.use(async (req, res, next) => {
+  try {
+    await connectToDatabase();
+    next();
+  } catch (error) {
+    console.error('Database connection error:', error);
+    return res.status(500).json({ error: 'Database connection failed' });
+  }
+});
+
 //Routes
 app.use("/api/tasks", workoutRoutes);
 app.use("/api/user", userRoutes);
 
-// connect to db - тільки при запуску в звичайному режимі, не в serverless
+// Для локальної розробки
 if (process.env.NODE_ENV !== 'production') {
-  mongoose.connect(process.env.MONGO_URI)
-    .then(() => {
-      app.listen(process.env.PORT, () => {
-        console.log(
-          `Connected to db & Server Started on port:${process.env.PORT}`
-        );
-      });
-    })
-    .catch((error) => {
-      console.log(error);
-    });
+  const PORT = process.env.PORT || 4000;
+  app.listen(PORT, () => {
+    console.log(`Server started on port: ${PORT}`);
+  });
 }
 
-// Важливо: експортуйте app для Vercel
 module.exports = app;
